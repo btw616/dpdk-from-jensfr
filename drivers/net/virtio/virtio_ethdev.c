@@ -478,6 +478,9 @@ virtio_init_queue(struct rte_eth_dev *dev, uint16_t vtpci_queue_idx)
 	if (vtpci_packed_queue(hw)) {
 		vq->avail_wrap_counter = 1;
 		vq->used_wrap_counter = 1;
+		vq->avail_used_flags =
+			VRING_DESC_F_AVAIL(vq->avail_wrap_counter) |
+			VRING_DESC_F_USED(!vq->avail_wrap_counter);
 	}
 	vq->num_added = 0;
 

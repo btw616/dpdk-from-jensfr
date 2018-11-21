@@ -638,8 +638,7 @@ virtqueue_enqueue_xmit_packed(struct virtnet_tx *txvq, struct rte_mbuf *cookie,
 	head_dxp = &vq->vq_descx[head_id];
 	head_dxp->cookie = (void *) cookie;
 	head_flags = cookie->next ? VRING_DESC_F_NEXT: 0;
-	head_flags |= VRING_DESC_F_AVAIL(vq->avail_wrap_counter) |
-		     VRING_DESC_F_USED(!vq->avail_wrap_counter);
+	head_flags |= vq->avail_used_flags;
 
 	if (can_push) {
 		/* prepend cannot fail, checked by caller */
@@ -693,13 +692,15 @@ virtqueue_enqueue_xmit_packed(struct virtnet_tx *txvq, struct rte_mbuf *cookie,
 		if (idx >= vq->vq_nentries) {
 			idx -= vq->vq_nentries;
 			vq->avail_wrap_counter ^= 1;
+			vq->avail_used_flags =
+				VRING_DESC_F_AVAIL(vq->avail_wrap_counter) |
+				VRING_DESC_F_USED(!vq->avail_wrap_counter);
 		}
 		start_dp[idx].addr  = VIRTIO_MBUF_DATA_DMA_ADDR(cookie, vq);
 		start_dp[idx].len   = cookie->data_len;
 		if (likely(idx != head_id)) {
 			flags = cookie->next ? VRING_DESC_F_NEXT : 0;
-			flags |= VRING_DESC_F_AVAIL(vq->avail_wrap_counter) |
-				 VRING_DESC_F_USED(!vq->avail_wrap_counter);
+			flags |= vq->avail_used_flags;
 			start_dp[idx].flags = flags;
 		}
 		if (use_indirect) {
@@ -711,6 +712,9 @@ virtqueue_enqueue_xmit_packed(struct virtnet_tx *txvq, struct rte_mbuf *cookie,
 			if (idx >= vq->vq_nentries) {
 				idx -= vq->vq_nentries;
 				vq->avail_wrap_counter ^= 1;
+				vq->avail_used_flags =
+					VRING_DESC_F_AVAIL(vq->avail_wrap_counter) |
+					VRING_DESC_F_USED(!vq->avail_wrap_counter);
 			}
 		}
 	} while ((cookie = cookie->next) != NULL);
@@ -732,6 +736,9 @@ virtqueue_enqueue_xmit_packed(struct virtnet_tx *txvq, struct rte_mbuf *cookie,
 		vq->vq_avail_idx -= vq->vq_nentries;
 		idx = vq->vq_avail_idx;
 		vq->avail_wrap_counter ^= 1;
+		vq->avail_used_flags =
+			VRING_DESC_F_AVAIL(vq->avail_wrap_counter) |
+			VRING_DESC_F_USED(!vq->avail_wrap_counter);
 	}
 
 	rte_smp_wmb();
