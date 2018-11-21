@@ -1036,7 +1036,10 @@ virtio_discard_rxbuf(struct virtqueue *vq, struct rte_mbuf *m)
 	 * Requeue the discarded mbuf. This should always be
 	 * successful since it was just dequeued.
 	 */
-	error = virtqueue_enqueue_recv_refill(vq, m);
+	if (vtpci_packed_queue(vq->hw))
+		error = virtqueue_enqueue_recv_refill_packed(vq, m);
+	else
+		error = virtqueue_enqueue_recv_refill(vq, m);
 
 	if (unlikely(error)) {
 		RTE_LOG(ERR, PMD, "cannot requeue discarded mbuf");
