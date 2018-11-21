@@ -2025,7 +2025,8 @@ virtio_dev_configure(struct rte_eth_dev *dev)
 
 	if (vtpci_with_feature(hw, VIRTIO_F_IN_ORDER)) {
 		hw->use_inorder_tx = 1;
-		if (vtpci_with_feature(hw, VIRTIO_NET_F_MRG_RXBUF)) {
+		if (vtpci_with_feature(hw, VIRTIO_NET_F_MRG_RXBUF) &&
+		    !vtpci_packed_queue(hw)) {
 			hw->use_inorder_rx = 1;
 			hw->use_simple_rx = 0;
 		} else {
