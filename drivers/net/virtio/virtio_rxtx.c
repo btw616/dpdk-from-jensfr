@@ -127,6 +127,23 @@ vq_ring_free_chain_packed(struct virtqueue *vq, uint16_t used_idx)
 	dxp->next = VQ_RING_DESC_CHAIN_END;
 }
 
+static void
+vq_ring_free_id_packed(struct virtqueue *vq, uint16_t id)
+{
+	struct vq_desc_extra *dxp;
+
+	dxp = &vq->vq_descx[id];
+	vq->vq_free_cnt += dxp->ndescs;
+
+	if (vq->vq_desc_tail_idx == VQ_RING_DESC_CHAIN_END)
+		vq->vq_desc_head_idx = id;
+	else
+		vq->vq_descx[vq->vq_desc_tail_idx].next = id;
+
+	vq->vq_desc_tail_idx = id;
+	dxp->next = VQ_RING_DESC_CHAIN_END;
+}
+
 static uint16_t
 virtqueue_dequeue_burst_rx_packed(struct virtqueue *vq,
 				  struct rte_mbuf **rx_pkts,
@@ -254,8 +271,7 @@ virtio_xmit_cleanup_packed(struct virtqueue *vq, int num)
 	struct vq_desc_extra *dxp;
 
 	used_idx = vq->vq_used_cons_idx;
-	while (num && desc_is_used(&desc[used_idx], vq)) {
-		num --;
+	while (num-- && desc_is_used(&desc[used_idx], vq)) {
 		used_idx = vq->vq_used_cons_idx;
 		id = desc[used_idx].index;
 		dxp = &vq->vq_descx[id];
@@ -264,7 +280,7 @@ virtio_xmit_cleanup_packed(struct virtqueue *vq, int num)
 			vq->vq_used_cons_idx -= size;
 			vq->used_wrap_counter ^= 1;
 		}
-		vq_ring_free_chain_packed(vq, used_idx);
+		vq_ring_free_id_packed(vq, id);
 		if (dxp->cookie != NULL) {
 			rte_pktmbuf_free(dxp->cookie);
 			dxp->cookie = NULL;
@@ -614,29 +630,29 @@ virtqueue_enqueue_xmit_inorder(struct virtnet_tx *txvq,
 
 static inline void
 virtqueue_enqueue_xmit_packed(struct virtnet_tx *txvq, struct rte_mbuf *cookie,
-			uint16_t needed, int use_indirect, int can_push,
-			int in_order)
+			      uint16_t needed, int can_push)
 {
 	struct virtio_tx_region *txr = txvq->virtio_net_hdr_mz->addr;
-	struct vq_desc_extra *dxp, *head_dxp;
+	struct vq_desc_extra *dxp;
 	struct virtqueue *vq = txvq->vq;
 	struct vring_desc_packed *start_dp, *head_dp;
-	uint16_t seg_num = cookie->nb_segs;
-	uint16_t idx, head_id, head_flags;
+	uint16_t idx, id, head_idx, head_flags;
 	uint16_t head_size = vq->hw->vtnet_hdr_size;
 	struct virtio_net_hdr *hdr;
 	uint16_t prev;
 
-	head_id = vq->vq_desc_head_idx;
-	idx = vq->vq_avail_idx;
-	prev = idx;
-	start_dp = vq->ring_packed.desc_packed;
-	dxp = &vq->vq_descx[head_id];
+	id = vq->vq_desc_head_idx;
+
+	dxp = &vq->vq_descx[id];
 	dxp->ndescs = needed;
+	dxp->cookie = cookie;
+
+	head_idx = vq->vq_avail_idx;
+	idx = head_idx;
+	prev = head_idx;
+	start_dp = vq->ring_packed.desc_packed;
 
 	head_dp = &vq->ring_packed.desc_packed[idx];
-	head_dxp = &vq->vq_descx[head_id];
-	head_dxp->cookie = (void *) cookie;
 	head_flags = cookie->next ? VRING_DESC_F_NEXT: 0;
 	head_flags |= vq->avail_used_flags;
 
@@ -658,22 +674,6 @@ virtqueue_enqueue_xmit_packed(struct virtnet_tx *txvq, struct rte_mbuf *cookie,
 			ASSIGN_UNLESS_EQUAL(hdr->gso_size, 0);
 			ASSIGN_UNLESS_EQUAL(hdr->hdr_len, 0);
 		}
-	} else if (use_indirect) {
-		/* setup tx ring slot to point to indirect
-		 * descriptor list stored in reserved region.
-		 *
-		 * the first slot in indirect ring is already preset
-		 * to point to the header in reserved region
-		 */
-		start_dp[idx].addr  = txvq->virtio_net_hdr_mem +
-			RTE_PTR_DIFF(&txr[idx].tx_indir_pq, txr);
-		start_dp[idx].len   = (seg_num + 1) * sizeof(struct vring_desc_packed);
-		start_dp[idx].flags = VRING_DESC_F_INDIRECT;
-		hdr = (struct virtio_net_hdr *)&txr[idx].tx_hdr;
-
-		/* loop below will fill in rest of the indirect elements */
-		start_dp = txr[idx].tx_indir_pq;
-		idx = 1;
 	} else {
 		/* setup first tx ring slot to point to header
 		 * stored in reserved region.
@@ -683,12 +683,6 @@ virtqueue_enqueue_xmit_packed(struct virtnet_tx *txvq, struct rte_mbuf *cookie,
 		start_dp[idx].len   = vq->hw->vtnet_hdr_size;
 		hdr = (struct virtio_net_hdr *)&txr[idx].tx_hdr;
 		idx++;
-	}
-
-	virtqueue_xmit_offload(hdr, cookie, vq->hw->has_tx_offload);
-
-	do {
-		uint16_t flags;
 		if (idx >= vq->vq_nentries) {
 			idx -= vq->vq_nentries;
 			vq->avail_wrap_counter ^= 1;
@@ -696,55 +690,44 @@ virtqueue_enqueue_xmit_packed(struct virtnet_tx *txvq, struct rte_mbuf *cookie,
 				VRING_DESC_F_AVAIL(vq->avail_wrap_counter) |
 				VRING_DESC_F_USED(!vq->avail_wrap_counter);
 		}
-		start_dp[idx].addr  = VIRTIO_MBUF_DATA_DMA_ADDR(cookie, vq);
-		start_dp[idx].len   = cookie->data_len;
-		if (likely(idx != head_id)) {
+	}
+
+	virtqueue_xmit_offload(hdr, cookie, vq->hw->has_tx_offload);
+
+	do {
+		uint16_t flags;
+
+		start_dp[idx].addr = VIRTIO_MBUF_DATA_DMA_ADDR(cookie, vq);
+		start_dp[idx].len  = cookie->data_len;
+		if (likely(idx != head_idx)) {
 			flags = cookie->next ? VRING_DESC_F_NEXT : 0;
 			flags |= vq->avail_used_flags;
 			start_dp[idx].flags = flags;
 		}
-		if (use_indirect) {
-			if (++idx >= (seg_num + 1))
-				break;
-		} else {
-			prev = idx;
-			idx++;
-			if (idx >= vq->vq_nentries) {
-				idx -= vq->vq_nentries;
-				vq->avail_wrap_counter ^= 1;
-				vq->avail_used_flags =
-					VRING_DESC_F_AVAIL(vq->avail_wrap_counter) |
-					VRING_DESC_F_USED(!vq->avail_wrap_counter);
-			}
+		prev = idx;
+		idx++;
+		if (idx >= vq->vq_nentries) {
+			idx -= vq->vq_nentries;
+			vq->avail_wrap_counter ^= 1;
+			vq->avail_used_flags =
+				VRING_DESC_F_AVAIL(vq->avail_wrap_counter) |
+				VRING_DESC_F_USED(!vq->avail_wrap_counter);
 		}
 	} while ((cookie = cookie->next) != NULL);
 
-        start_dp[prev].index = head_id;
-
-	if (use_indirect)
-		idx = vq->ring_packed.desc_packed[head_id].index;
+	start_dp[prev].index = id;
 
 	vq->vq_free_cnt = (uint16_t)(vq->vq_free_cnt - needed);
 
-	vq->vq_desc_head_idx = start_dp[idx].index;
-	if (!in_order) {
-		if (vq->vq_desc_head_idx == VQ_RING_DESC_CHAIN_END)
-			vq->vq_desc_tail_idx = start_dp[idx].index;
-	}
+	vq->vq_desc_head_idx = dxp->next;
+	if (vq->vq_desc_head_idx == VQ_RING_DESC_CHAIN_END)
+		vq->vq_desc_tail_idx = VQ_RING_DESC_CHAIN_END;
+
 	vq->vq_avail_idx = idx;
-	if (vq->vq_avail_idx >= vq->vq_nentries) {
-		vq->vq_avail_idx -= vq->vq_nentries;
-		idx = vq->vq_avail_idx;
-		vq->avail_wrap_counter ^= 1;
-		vq->avail_used_flags =
-			VRING_DESC_F_AVAIL(vq->avail_wrap_counter) |
-			VRING_DESC_F_USED(!vq->avail_wrap_counter);
-	}
 
 	rte_smp_wmb();
 	head_dp->flags = head_flags;
 }
-
 
 static inline void
 virtqueue_enqueue_xmit(struct virtnet_tx *txvq, struct rte_mbuf *cookie,
@@ -1930,7 +1913,6 @@ virtio_xmit_pkts_packed(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_p
 	uint16_t hdr_size = hw->vtnet_hdr_size;
 	uint16_t nb_tx = 0;
 	int error;
-	int nb_clean;
 
 	if (unlikely(hw->started == 0 && tx_pkts != hw->inject_pkts))
 		return nb_tx;
@@ -1940,14 +1922,12 @@ virtio_xmit_pkts_packed(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_p
 
 	PMD_TX_LOG(DEBUG, "%d packets to xmit", nb_pkts);
 
-	virtio_rmb();
-	nb_clean = nb_pkts <= vq->vq_free_cnt ? 0: nb_pkts - vq->vq_free_cnt;
-	if (nb_clean)
-		virtio_xmit_cleanup_packed(vq, nb_clean);
+	if (nb_pkts > vq->vq_free_cnt)
+		virtio_xmit_cleanup_packed(vq, nb_pkts - vq->vq_free_cnt);
 
 	for (nb_tx = 0; nb_tx < nb_pkts; nb_tx++) {
 		struct rte_mbuf *txm = tx_pkts[nb_tx];
-		int can_push = 0, use_indirect = 0, slots, need;
+		int can_push = 0, slots, need;
 
 		/* Do VLAN tag insertion */
 		if (unlikely(txm->ol_flags & PKT_TX_VLAN_PKT)) {
@@ -1968,16 +1948,12 @@ virtio_xmit_pkts_packed(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_p
 		    rte_is_aligned(rte_pktmbuf_mtod(txm, char *),
 				   __alignof__(struct virtio_net_hdr_mrg_rxbuf)))
 			can_push = 1;
-		else if (vtpci_with_feature(hw, VIRTIO_RING_F_INDIRECT_DESC) &&
-			 txm->nb_segs < VIRTIO_MAX_TX_INDIRECT)
-			use_indirect = 1;
 
 		/* How many main ring entries are needed to this Tx?
 		 * any_layout => number of segments
-		 * indirect   => 1
 		 * default    => number of segments + 1
 		 */
-		slots = use_indirect ? 1 : (txm->nb_segs + !can_push);
+		slots = txm->nb_segs + !can_push;
 		need = slots - vq->vq_free_cnt;
 
 		/* Positive value indicates it need free vring descriptors */
@@ -1994,8 +1970,7 @@ virtio_xmit_pkts_packed(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_p
 		}
 
 		/* Enqueue Packet buffers */
-		virtqueue_enqueue_xmit_packed(txvq, txm, slots, use_indirect,
-			can_push, 0);
+		virtqueue_enqueue_xmit_packed(txvq, txm, slots, can_push);
 
 		txvq->stats.bytes += txm->pkt_len;
 		virtio_update_packet_stats(&txvq->stats, txm);
