@@ -147,7 +147,7 @@ virtio_pq_send_command(struct virtnet_ctl *cvq, struct virtio_pmd_ctrl *ctrl,
 {
 	struct virtqueue *vq = cvq->vq;
 	int head;
-	struct vring_desc_packed *desc = vq->ring_packed.desc_packed;
+	struct vring_packed_desc *desc = vq->ring_packed.desc_packed;
 	struct virtio_pmd_ctrl *result;
 	int wrap_counter;
 	int sum = 0;
@@ -589,7 +589,7 @@ virtio_init_queue(struct rte_eth_dev *dev, uint16_t vtpci_queue_idx)
 		memset(txr, 0, vq_size * sizeof(*txr));
 		for (i = 0; i < vq_size; i++) {
 			struct vring_desc *start_dp = txr[i].tx_indir;
-			struct vring_desc_packed *start_dp_packed = txr[i].tx_indir_pq;
+			struct vring_packed_desc *start_dp_packed = txr[i].tx_indir_pq;
 	
 			/* first indirect descriptor is always the tx header */
 			if (vtpci_packed_queue(hw)) {

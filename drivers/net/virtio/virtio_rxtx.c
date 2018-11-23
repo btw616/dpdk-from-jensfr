@@ -115,7 +115,7 @@ virtqueue_dequeue_burst_rx_packed(struct virtqueue *vq,
 	struct rte_mbuf *cookie;
 	uint16_t used_idx;
 	uint16_t id;
-	struct vring_desc_packed *desc;
+	struct vring_packed_desc *desc;
 	uint16_t i;
 
 	desc = vq->ring_packed.desc_packed;
@@ -229,7 +229,7 @@ virtio_xmit_cleanup_packed(struct virtqueue *vq, int num)
 {
 	uint16_t used_idx, id;
 	uint16_t size = vq->vq_nentries;
-	struct vring_desc_packed *desc = vq->ring_packed.desc_packed;
+	struct vring_packed_desc *desc = vq->ring_packed.desc_packed;
 	struct vq_desc_extra *dxp;
 
 	used_idx = vq->vq_used_cons_idx;
@@ -397,7 +397,7 @@ virtqueue_enqueue_recv_refill_packed(struct virtqueue *vq, struct rte_mbuf *cook
 {
 	struct vq_desc_extra *dxp;
 	struct virtio_hw *hw = vq->hw;
-	struct vring_desc_packed *dp;
+	struct vring_packed_desc *dp;
 	uint16_t idx;
 	uint16_t flags;
 
@@ -587,7 +587,7 @@ virtqueue_enqueue_xmit_packed(struct virtnet_tx *txvq, struct rte_mbuf *cookie,
 	struct virtio_tx_region *txr = txvq->virtio_net_hdr_mz->addr;
 	struct vq_desc_extra *dxp;
 	struct virtqueue *vq = txvq->vq;
-	struct vring_desc_packed *start_dp, *head_dp;
+	struct vring_packed_desc *start_dp, *head_dp;
 	uint16_t idx, id, head_idx, head_flags;
 	uint16_t head_size = vq->hw->vtnet_hdr_size;
 	struct virtio_net_hdr *hdr;

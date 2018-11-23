@@ -66,7 +66,7 @@ virtqueue_rxvq_flush(struct virtqueue *vq)
 	uint16_t nb_used, i;
 
 	if (vtpci_packed_queue(vq->hw)) {
-		struct vring_desc_packed *descs = vq->ring_packed.desc_packed;
+		struct vring_packed_desc *descs = vq->ring_packed.desc_packed;
 		int cnt = 0;
 
 		i = vq->vq_used_cons_idx;

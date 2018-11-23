@@ -61,7 +61,7 @@ struct vring_used {
 /* For support of packed virtqueues in Virtio 1.1 the format of descriptors
  * looks like this.
  */
-struct vring_desc_packed {
+struct vring_packed_desc {
 	uint64_t addr;
 	uint32_t len;
 	uint16_t id;
@@ -78,7 +78,7 @@ struct vring_packed_desc_event {
 
 struct vring_packed {
 	unsigned int num;
-	struct vring_desc_packed *desc_packed;
+	struct vring_packed_desc *desc_packed;
 	struct vring_packed_desc_event *driver_event;
 	struct vring_packed_desc_event *device_event;
 
@@ -130,7 +130,7 @@ vring_size(struct virtio_hw *hw, unsigned int num, unsigned long align)
 	size_t size;
 
 	if (vtpci_packed_queue(hw)) {
-		size = num * sizeof(struct vring_desc_packed);
+		size = num * sizeof(struct vring_packed_desc);
 		size += sizeof(struct vring_packed_desc_event);
 		size = RTE_ALIGN_CEIL(size, align);
 		size += sizeof(struct vring_packed_desc_event);
@@ -161,9 +161,9 @@ vring_init_packed(struct vring_packed *vr, uint8_t *p, unsigned long align,
 		 unsigned int num)
 {
 	vr->num = num;
-	vr->desc_packed = (struct vring_desc_packed *)p;
+	vr->desc_packed = (struct vring_packed_desc *)p;
 	vr->driver_event = (struct vring_packed_desc_event *)(p +
-			vr->num * sizeof(struct vring_desc_packed));
+			vr->num * sizeof(struct vring_packed_desc));
 	vr->device_event = (struct vring_packed_desc_event *)
 		RTE_ALIGN_CEIL((uintptr_t)(vr->driver_event +
 				sizeof(struct vring_packed_desc_event)), align);

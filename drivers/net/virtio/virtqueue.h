@@ -252,26 +252,26 @@ struct virtio_tx_region {
 	union {
 		struct vring_desc tx_indir[VIRTIO_MAX_TX_INDIRECT]
 			__attribute__((__aligned__(16)));
-		struct vring_desc_packed tx_indir_pq[VIRTIO_MAX_TX_INDIRECT]
+		struct vring_packed_desc tx_indir_pq[VIRTIO_MAX_TX_INDIRECT]
 			__attribute__((__aligned__(16)));
 	};
 };
 
 static inline void
-_set_desc_avail(struct vring_desc_packed *desc, int wrap_counter)
+_set_desc_avail(struct vring_packed_desc *desc, int wrap_counter)
 {
 	desc->flags |= VRING_DESC_F_AVAIL(wrap_counter) |
 		       VRING_DESC_F_USED(!wrap_counter);
 }
 
 static inline void
-set_desc_avail(struct virtqueue *vq, struct vring_desc_packed *desc)
+set_desc_avail(struct virtqueue *vq, struct vring_packed_desc *desc)
 {
 	_set_desc_avail(desc, vq->avail_wrap_counter);
 }
 
 static inline int
-desc_is_used(struct vring_desc_packed *desc, struct virtqueue *vq)
+desc_is_used(struct vring_packed_desc *desc, struct virtqueue *vq)
 {
 	uint16_t used, avail, flags;
 
