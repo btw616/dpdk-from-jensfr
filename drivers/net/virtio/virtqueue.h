@@ -171,7 +171,6 @@ struct virtqueue {
 	bool avail_wrap_counter;
 	bool used_wrap_counter;
 	uint16_t event_flags_shadow;
-	uint16_t num_added;
 	uint16_t avail_used_flags;
 
 	/**
@@ -435,27 +434,12 @@ virtqueue_kick_prepare(struct virtqueue *vq)
 static inline int
 virtqueue_kick_prepare_packed(struct virtqueue *vq)
 {
-	uint16_t off_wrap, event_idx, new_idx, old, flags, wrap_counter;
-	uint32_t snapshot;
-
-	old = vq->vq_avail_idx - vq->num_added;
-	new_idx = vq->vq_avail_idx;
-	vq->num_added = 0;
+	uint16_t flags;
 
 	virtio_mb();
-	snapshot = *(uint32_t *)vq->ring_packed.device_event;
-	off_wrap = snapshot & 0xffff;
-	flags = (snapshot >> 16) & 0x3; //FIXME hardcoded constant
+	flags = vq->ring_packed.device_event->desc_event_flags;
 
-	wrap_counter = off_wrap >> 15;
-	event_idx = off_wrap & ~(1<<15); //FIXME
-	if (wrap_counter != vq->avail_wrap_counter)
-		event_idx -= vq->vq_nentries;
-
-	if (flags == RING_EVENT_FLAGS_DESC)
-		return vring_need_event(event_idx, new_idx, old);
-	else
-		return flags != RING_EVENT_FLAGS_DISABLE;
+	return flags != RING_EVENT_FLAGS_DISABLE;
 }
 
 static inline void
