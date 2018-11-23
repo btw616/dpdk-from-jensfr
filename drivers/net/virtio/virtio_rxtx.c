@@ -89,44 +89,6 @@ vq_ring_free_chain(struct virtqueue *vq, uint16_t desc_idx)
 	dp->next = VQ_RING_DESC_CHAIN_END;
 }
 
-void
-vq_ring_free_chain_packed(struct virtqueue *vq, uint16_t used_idx)
-{
-	struct vring_desc_packed *dp;
-	struct vq_desc_extra *dxp, *dxp_tail;
-	uint16_t desc_idx_last, desc_idx;
-	int i = 0;
-
-	dp  = &vq->ring_packed.desc_packed[used_idx];
-	dxp = &vq->vq_descx[dp->index];
-	desc_idx = desc_idx_last = dp->index;
-	vq->vq_free_cnt = (uint16_t)(vq->vq_free_cnt + dxp->ndescs);
-	if ((dp->flags & VRING_DESC_F_INDIRECT) == 0) {
-		while (dxp->next != VQ_RING_DESC_CHAIN_END && i < dxp->ndescs) {
-			desc_idx_last = dxp->next;
-			dxp = &vq->vq_descx[dxp->next];
-			used_idx += dxp->ndescs;
-			dp = &vq->ring_packed.desc_packed[used_idx];
-			i++;
-		}
-	}
-
-	/*
-	 * We must append the existing free chain, if any, to the end of
-	 * newly freed chain. If the virtqueue was completely used, then
-	 * head would be VQ_RING_DESC_CHAIN_END (ASSERTed above).
-	 */
-	if (vq->vq_desc_tail_idx == VQ_RING_DESC_CHAIN_END) {
-		vq->vq_desc_head_idx = desc_idx;
-	} else {
-		dxp_tail = &vq->vq_descx[vq->vq_desc_tail_idx];
-		dxp_tail->next = desc_idx;
-	}
-
-	vq->vq_desc_tail_idx = desc_idx_last;
-	dxp->next = VQ_RING_DESC_CHAIN_END;
-}
-
 static void
 vq_ring_free_id_packed(struct virtqueue *vq, uint16_t id)
 {
@@ -156,15 +118,15 @@ virtqueue_dequeue_burst_rx_packed(struct virtqueue *vq,
 	struct vring_desc_packed *desc;
 	uint16_t i;
 
+	desc = vq->ring_packed.desc_packed;
+
 	for (i = 0; i < num; i++) {
 		used_idx = vq->vq_used_cons_idx;
-		desc = (struct vring_desc_packed *) vq->ring_packed.desc_packed;
 		if (!desc_is_used(&desc[used_idx], vq))
 			return i;
 		len[i] = desc[used_idx].len;
 		id = desc[used_idx].index;
 		cookie = (struct rte_mbuf *)vq->vq_descx[id].cookie;
-
 		if (unlikely(cookie == NULL)) {
 			PMD_DRV_LOG(ERR, "vring descriptor with no mbuf cookie at %u",
 				vq->vq_used_cons_idx);
@@ -173,9 +135,9 @@ virtqueue_dequeue_burst_rx_packed(struct virtqueue *vq,
 		rte_prefetch0(cookie);
 		rte_packet_prefetch(rte_pktmbuf_mtod(cookie, void *));
 		rx_pkts[i] = cookie;
-		vq_ring_free_chain_packed(vq, used_idx);
 
-		vq->vq_used_cons_idx += vq->vq_descx[id].ndescs;
+		vq->vq_free_cnt++;
+		vq->vq_used_cons_idx++;
 		if (vq->vq_used_cons_idx >= vq->vq_nentries) {
 			vq->vq_used_cons_idx -= vq->vq_nentries;
 			vq->used_wrap_counter ^= 1;
@@ -435,42 +397,31 @@ virtqueue_enqueue_recv_refill_packed(struct virtqueue *vq, struct rte_mbuf *cook
 {
 	struct vq_desc_extra *dxp;
 	struct virtio_hw *hw = vq->hw;
-	struct vring_desc_packed *start_dp;
-	uint16_t needed = 1;
+	struct vring_desc_packed *dp;
 	uint16_t idx;
 	uint16_t flags;
 
-	if (unlikely(vq->vq_free_cnt == 0))
+	if (unlikely(vq->vq_free_cnt < 1))
 		return -ENOSPC;
-	if (unlikely(vq->vq_free_cnt < needed))
-		return -EMSGSIZE;
 
-	idx = vq->vq_desc_head_idx;
-	if (unlikely(idx >= vq->vq_nentries))
-		return -EFAULT;
+	idx = vq->vq_avail_idx;
 
 	dxp = &vq->vq_descx[idx];
-	dxp->cookie = (void *)cookie;
-	dxp->ndescs = needed;
+	dxp->cookie = cookie;
 
-	start_dp = vq->ring_packed.desc_packed;
-	start_dp[vq->vq_avail_idx].addr =
-		VIRTIO_MBUF_ADDR(cookie, vq) +
-		RTE_PKTMBUF_HEADROOM - hw->vtnet_hdr_size;
-	start_dp[vq->vq_avail_idx].len =
-		cookie->buf_len - RTE_PKTMBUF_HEADROOM + hw->vtnet_hdr_size;
+	dp = &vq->ring_packed.desc_packed[idx];
+	dp->addr = VIRTIO_MBUF_ADDR(cookie, vq) +
+			RTE_PKTMBUF_HEADROOM - hw->vtnet_hdr_size;
+	dp->len = cookie->buf_len - RTE_PKTMBUF_HEADROOM + hw->vtnet_hdr_size;
+
 	flags = VRING_DESC_F_WRITE;
 	flags |= VRING_DESC_F_AVAIL(vq->avail_wrap_counter) |
 		 VRING_DESC_F_USED(!vq->avail_wrap_counter);
 	rte_smp_wmb();
-	start_dp[vq->vq_avail_idx].flags = flags;
-	idx = dxp->next;
-	vq->vq_desc_head_idx = idx;
-	if (vq->vq_desc_head_idx == VQ_RING_DESC_CHAIN_END)
-		vq->vq_desc_tail_idx = idx;
-	vq->vq_free_cnt = (uint16_t)(vq->vq_free_cnt - needed);
+	dp->flags = flags;
 
-	vq->vq_avail_idx += needed;
+	vq->vq_free_cnt--;
+	vq->vq_avail_idx++;
 	if (vq->vq_avail_idx >= vq->vq_nentries) {
 		vq->vq_avail_idx -= vq->vq_nentries;
 		vq->avail_wrap_counter ^= 1;
@@ -478,6 +429,7 @@ virtqueue_enqueue_recv_refill_packed(struct virtqueue *vq, struct rte_mbuf *cook
 
 	return 0;
 }
+
 /* When doing TSO, the IP length is not included in the pseudo header
  * checksum of the packet given to the PMD, but for virtio it is
  * expected.
@@ -1277,7 +1229,7 @@ virtio_recv_pkts_packed(void *rx_queue, struct rte_mbuf **rx_pkts, uint16_t nb_p
 	struct virtqueue *vq = rxvq->vq;
 	struct virtio_hw *hw = vq->hw;
 	struct rte_mbuf *rxm, *new_mbuf;
-	uint16_t nb_used, num, nb_rx;
+	uint16_t num, nb_rx;
 	uint32_t len[VIRTIO_MBUF_BURST_SZ];
 	struct rte_mbuf *rcv_pkts[VIRTIO_MBUF_BURST_SZ];
 	int error;
@@ -1289,23 +1241,17 @@ virtio_recv_pkts_packed(void *rx_queue, struct rte_mbuf **rx_pkts, uint16_t nb_p
 	if (unlikely(hw->started == 0))
 		return nb_rx;
 
-	nb_used = VIRTIO_MBUF_BURST_SZ;
-
-	virtio_rmb();
-
-	num = likely(nb_used <= nb_pkts) ? nb_used : nb_pkts;
-	if (unlikely(num > VIRTIO_MBUF_BURST_SZ))
-		num = VIRTIO_MBUF_BURST_SZ;
+	num = RTE_MIN(VIRTIO_MBUF_BURST_SZ, nb_pkts);
 	if (likely(num > DESC_PER_CACHELINE))
 		num = num - ((vq->vq_used_cons_idx + num) % DESC_PER_CACHELINE);
 
 	num = virtqueue_dequeue_burst_rx_packed(vq, rcv_pkts, len, num);
-	PMD_RX_LOG(DEBUG, "used:%d dequeue:%d", nb_used, num);
+	PMD_RX_LOG(DEBUG, "dequeue:%d", num);
 
 	nb_enqueued = 0;
 	hdr_size = hw->vtnet_hdr_size;
 
-	for (i = 0; i < num ; i++) {
+	for (i = 0; i < num; i++) {
 		rxm = rcv_pkts[i];
 
 		PMD_RX_LOG(DEBUG, "packet len:%d", len[i]);
@@ -1734,7 +1680,6 @@ virtio_recv_mergeable_pkts(void *rx_queue,
 	return nb_rx;
 }
 
-
 uint16_t
 virtio_recv_mergeable_pkts_packed(void *rx_queue,
 			struct rte_mbuf **rx_pkts,
@@ -1777,7 +1722,7 @@ virtio_recv_mergeable_pkts_packed(void *rx_queue,
 
 		num = virtqueue_dequeue_burst_rx_packed(vq, rcv_pkts, len, 1);
 		if (num == 0)
-			return nb_rx;
+			break;
 		if (num != 1)
 			continue;
 
@@ -1827,8 +1772,7 @@ virtio_recv_mergeable_pkts_packed(void *rx_queue,
 			/*
 			 * Get extra segments for current uncompleted packet.
 			 */
-			uint16_t  rcv_cnt =
-			RTE_MIN(seg_res, RTE_DIM(rcv_pkts));
+			uint16_t rcv_cnt = RTE_MIN(seg_res, RTE_DIM(rcv_pkts));
 			if (likely(vq->vq_free_cnt >= rcv_cnt)) {
 				rx_num = virtqueue_dequeue_burst_rx_packed(vq,
 					     rcv_pkts, len, rcv_cnt);
