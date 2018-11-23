@@ -1451,8 +1451,14 @@ set_rxtx_funcs(struct rte_eth_dev *eth_dev)
 
 	if (vtpci_packed_queue(hw)) {
 		if (vtpci_with_feature(hw, VIRTIO_NET_F_MRG_RXBUF)) {
+			PMD_INIT_LOG(INFO,
+				"virtio: using packed ring mergeable buffer Rx path on port %u",
+				eth_dev->data->port_id);
 			eth_dev->rx_pkt_burst = &virtio_recv_mergeable_pkts_packed;
 		} else {
+			PMD_INIT_LOG(INFO,
+				"virtio: using packed ring standard Rx path on port %u",
+				eth_dev->data->port_id);
 			eth_dev->rx_pkt_burst = &virtio_recv_pkts_packed;
 		}
 	} else { 
