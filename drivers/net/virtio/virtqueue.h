@@ -288,10 +288,10 @@ vring_desc_init_packed(struct virtqueue *vq, int n)
 {
 	int i;
 	for (i = 0; i < n - 1; i++) {
-		vq->ring_packed.desc_packed[i].index = i;
+		vq->ring_packed.desc_packed[i].id = i;
 		vq->vq_descx[i].next = i + 1;
 	}
-	vq->ring_packed.desc_packed[i].index = i;
+	vq->ring_packed.desc_packed[i].id = i;
 	vq->vq_descx[i].next = VQ_RING_DESC_CHAIN_END;
 }
 

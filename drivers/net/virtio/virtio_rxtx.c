@@ -125,7 +125,7 @@ virtqueue_dequeue_burst_rx_packed(struct virtqueue *vq,
 		if (!desc_is_used(&desc[used_idx], vq))
 			return i;
 		len[i] = desc[used_idx].len;
-		id = desc[used_idx].index;
+		id = desc[used_idx].id;
 		cookie = (struct rte_mbuf *)vq->vq_descx[id].cookie;
 		if (unlikely(cookie == NULL)) {
 			PMD_DRV_LOG(ERR, "vring descriptor with no mbuf cookie at %u",
@@ -235,7 +235,7 @@ virtio_xmit_cleanup_packed(struct virtqueue *vq, int num)
 	used_idx = vq->vq_used_cons_idx;
 	while (num-- && desc_is_used(&desc[used_idx], vq)) {
 		used_idx = vq->vq_used_cons_idx;
-		id = desc[used_idx].index;
+		id = desc[used_idx].id;
 		dxp = &vq->vq_descx[id];
 		vq->vq_used_cons_idx += dxp->ndescs;
 		if (vq->vq_used_cons_idx >= size) {
@@ -667,7 +667,7 @@ virtqueue_enqueue_xmit_packed(struct virtnet_tx *txvq, struct rte_mbuf *cookie,
 		}
 	} while ((cookie = cookie->next) != NULL);
 
-	start_dp[prev].index = id;
+	start_dp[prev].id = id;
 
 	vq->vq_free_cnt = (uint16_t)(vq->vq_free_cnt - needed);
 

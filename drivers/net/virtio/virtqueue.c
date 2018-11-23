@@ -71,7 +71,7 @@ virtqueue_rxvq_flush(struct virtqueue *vq)
 
 		i = vq->vq_used_cons_idx;
 		while (desc_is_used(&descs[i], vq) && cnt++ < vq->vq_nentries) {
-			dxp = &vq->vq_descx[descs[i].index];
+			dxp = &vq->vq_descx[descs[i].id];
 			if (dxp->cookie != NULL) {
 				rte_pktmbuf_free(dxp->cookie);
 				dxp->cookie = NULL;

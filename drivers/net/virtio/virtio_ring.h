@@ -64,7 +64,7 @@ struct vring_used {
 struct vring_desc_packed {
 	uint64_t addr;
 	uint32_t len;
-	uint16_t index;
+	uint16_t id;
 	uint16_t flags;
 } __attribute__ ((aligned(16)));
 
