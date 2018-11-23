@@ -2023,8 +2023,7 @@ virtio_dev_configure(struct rte_eth_dev *dev)
 
 	rte_spinlock_init(&hw->state_lock);
 
-	if (!vtpci_packed_queue(hw))
-		hw->use_simple_rx = 1;
+	hw->use_simple_rx = 1;
 
 	if (vtpci_with_feature(hw, VIRTIO_F_IN_ORDER)) {
 		hw->use_inorder_tx = 1;
@@ -2035,6 +2034,12 @@ virtio_dev_configure(struct rte_eth_dev *dev)
 		} else {
 			hw->use_inorder_rx = 0;
 		}
+	}
+
+	if (vtpci_packed_queue(hw)) {
+		hw->use_simple_rx = 0;
+		hw->use_inorder_rx = 0;
+		hw->use_inorder_tx = 0;
 	}
 
 #if defined RTE_ARCH_ARM64 || defined RTE_ARCH_ARM
