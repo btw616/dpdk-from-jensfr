@@ -66,7 +66,7 @@ struct vring_packed_desc {
 	uint32_t len;
 	uint16_t id;
 	uint16_t flags;
-} __attribute__ ((aligned(16)));
+};
 
 #define RING_EVENT_FLAGS_ENABLE 0x0
 #define RING_EVENT_FLAGS_DISABLE 0x1
