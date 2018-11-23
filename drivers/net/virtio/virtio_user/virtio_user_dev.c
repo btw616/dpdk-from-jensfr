@@ -58,6 +58,8 @@ virtio_user_kick_queue(struct virtio_user_dev *dev, uint32_t queue_sel)
 
 	state.index = queue_sel;
 	state.num = 0; /* no reservation */
+	if (dev->features & (1ULL << VIRTIO_F_RING_PACKED))
+		state.num |= (1 << 15);
 	dev->ops->send_request(dev, VHOST_USER_SET_VRING_BASE, &state);
 
 	dev->ops->send_request(dev, VHOST_USER_SET_VRING_ADDR, &addr);
