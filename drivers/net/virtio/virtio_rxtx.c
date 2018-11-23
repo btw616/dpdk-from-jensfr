@@ -1027,8 +1027,10 @@ virtio_dev_tx_queue_setup_finish(struct rte_eth_dev *dev,
 
 	PMD_INIT_FUNC_TRACE();
 
-	if (hw->use_inorder_tx)
-		vq->vq_ring.desc[vq->vq_nentries - 1].next = 0;
+	if (!vtpci_packed_queue(hw)) {
+		if (hw->use_inorder_tx)
+			vq->vq_ring.desc[vq->vq_nentries - 1].next = 0;
+	}
 
 	VIRTQUEUE_DUMP(vq);
 
