@@ -1434,7 +1434,8 @@ set_rxtx_funcs(struct rte_eth_dev *eth_dev)
 	struct virtio_hw *hw = eth_dev->data->dev_private;
 
 	if (vtpci_packed_queue(hw)) {
-		PMD_INIT_LOG(INFO, "virtio: using virtio 1.1 Tx path on port %u",
+		PMD_INIT_LOG(INFO,
+			"virtio: using packed ring standard Tx path on port %u",
 			eth_dev->data->port_id);
 		eth_dev->tx_pkt_burst = virtio_xmit_pkts_packed;
 	} else {
